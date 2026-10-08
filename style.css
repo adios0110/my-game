@@ -1,0 +1,131 @@
+:root {
+  color-scheme: dark;
+  font-family: "Malgun Gothic", sans-serif;
+  background: #10131b;
+  color: #f2f4f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 48px 24px;
+  background: radial-gradient(ellipse at top, #252d50 0%, #10131b 58%);
+}
+
+.profile {
+  width: min(100%, 720px);
+  padding: clamp(32px, 7vw, 72px);
+  border: 1px solid #2b3140;
+  border-radius: 28px;
+  background: rgba(25, 29, 40, 0.9);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
+}
+
+.eyebrow {
+  margin: 0 0 18px;
+  color: #aebcff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  line-height: 1.12;
+  letter-spacing: -0.05em;
+  overflow-wrap: anywhere;
+}
+
+.intro {
+  margin: 20px 0 0;
+  color: #c7cdda;
+  font-size: clamp(1.05rem, 2.5vw, 1.25rem);
+  line-height: 1.8;
+}
+
+.games {
+  margin-top: 56px;
+  padding-top: 32px;
+  border-top: 1px solid #343a49;
+}
+
+.today {
+  margin: 40px 0 0;
+  color: #9da6b7;
+  font-size: 0.95rem;
+}
+
+h2 {
+  margin: 0 0 20px;
+  font-size: 1.45rem;
+}
+
+.game-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-list li {
+  padding: 16px 18px;
+  border: 1px solid #343b4c;
+  border-radius: 14px;
+  background: #202534;
+  color: #e5e9f2;
+  font-size: 1rem;
+}
+
+.game-list a {
+  display: grid;
+  position: relative;
+  min-height: 24px;
+  place-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+
+.game-name,
+.game-logo {
+  grid-area: 1 / 1;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.game-logo {
+  max-width: 100%;
+  width: 132px;
+  max-height: 30px;
+  object-fit: contain;
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+.wuthering-logo {
+  width: 112px;
+  max-height: 38px;
+}
+
+.game-list li:hover {
+  border-color: #8498f5;
+  background: #282f43;
+}
+
+.game-list li:hover .game-name {
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+.game-list li:hover .game-logo {
+  opacity: 1;
+  transform: scale(1);
+}
