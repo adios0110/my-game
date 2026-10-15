@@ -27,12 +27,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "README.md",
+                "file": "회고.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "README"
+              "title": "회고"
             }
           }
         ],
@@ -114,7 +114,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "README.md",
+                "file": "회고.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -133,7 +133,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "README.md",
+                "file": "회고.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -176,7 +176,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "README.md",
+                "file": "회고.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -205,8 +205,9 @@
   },
   "active": "269b467cb461172e",
   "lastOpenFiles": [
-    "회고.md",
+    "회고.pdf",
     "README.md",
+    "회고.md",
     "게임 기획서.md",
     "script.js",
     "style.css",
