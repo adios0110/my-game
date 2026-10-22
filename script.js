@@ -4,8 +4,9 @@ const canvas = document.querySelector("#game");
 // 캔버스에 그림을 그릴 2D 도구를 가져옵니다.
 const ctx = canvas.getContext("2d");
 
-// 플레이어의 위치와 크기입니다. 키보드 조작은 아직 넣지 않습니다.
+// 플레이어의 위치와 크기입니다.
 const player = { x: 385, y: 525, width: 45, height: 53 };
+const initialPlayerPosition = { x: player.x, y: player.y };
 
 // 게임 시간과 체력입니다.
 let remainingTime = 180;
@@ -13,6 +14,10 @@ let health = 3;
 let elapsedTime = 0;
 let lastFrameTime = null;
 let nextObstacleIncreaseAt = 15;
+let score = 0;
+let collectedLetters = "";
+let gameOver = false;
+const playerSpeed = 7;
 
 // A~Z는 모두 등장하지만, 화면에는 5개만 동시에 보입니다.
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -68,6 +73,27 @@ function drawBackground() {
   }
   ctx.fillStyle = "#f0eadc";
   ctx.fillRect(0, 430, canvas.width, 170);
+}
+
+function drawCollectedLettersOnShelves() {
+  // 획득 순서대로 왼쪽 책장을 먼저 채우고, 다음에는 오른쪽 책장을 채웁니다.
+  const bookColors = ["#f5b544", "#e87867", "#5799a6", "#8d79b8", "#78a66b"];
+  [...collectedLetters].slice(0, 50).forEach((letter, index) => {
+    const shelfSide = Math.floor(index / 25); // 0: 왼쪽, 1: 오른쪽
+    const positionInShelf = index % 25;
+    const row = Math.floor(positionInShelf / 5);
+    const column = positionInShelf % 5;
+    const shelfX = shelfSide === 0 ? 20 : 570;
+    const x = shelfX + 18 + column * 37;
+    const shelfY = 150 + row * 60;
+
+    ctx.fillStyle = bookColors[index % bookColors.length];
+    ctx.fillRect(x, shelfY - 42, 30, 40);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 20px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(letter, x + 15, shelfY - 14);
+  });
 }
 
 function drawPlayer() {
@@ -152,6 +178,70 @@ function isCollidingWithPlayer(obstacle) {
     && obstacle.y - 36 < player.y + player.height;
 }
 
+function isLetterCollected(letter) {
+  return letter.x + 18 > player.x
+    && letter.x - 18 < player.x + player.width
+    && letter.y + 8 > player.y
+    && letter.y - 36 < player.y + player.height;
+}
+
+function restartGame() {
+  remainingTime = 180;
+  health = 3;
+  elapsedTime = 0;
+  nextObstacleIncreaseAt = 15;
+  score = 0;
+  collectedLetters = "";
+  gameOver = false;
+  player.x = initialPlayerPosition.x;
+  player.y = initialPlayerPosition.y;
+  nextLetterIndex = 5;
+  nextObstacleSymbolIndex = 3;
+
+  letters.forEach((letter, index) => {
+    letter.text = alphabet[index];
+    letter.x = 35 + index * 150;
+    letter.y = -40 - index * 80;
+  });
+  obstacles.splice(3);
+  obstacles.forEach((obstacle, index) => {
+    obstacle.text = obstacleSymbols[index];
+    obstacle.x = 150 + index * 240;
+    obstacle.y = -100 - index * 150;
+    obstacle.speedX = index < 2 ? (index === 0 ? 1.8 : -1.8) : 0;
+    obstacle.speedY = 4 + index * 0.2;
+  });
+}
+
+function movePlayer(key) {
+  if (gameOver) return;
+  if (key === "ArrowLeft") player.x -= playerSpeed;
+  if (key === "ArrowRight") player.x += playerSpeed;
+  if (key === "ArrowUp") player.y -= playerSpeed;
+  if (key === "ArrowDown") player.y += playerSpeed;
+  player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+  player.y = Math.max(80, Math.min(canvas.height - player.height, player.y));
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "r" || event.key === "R") {
+    restartGame();
+    return;
+  }
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+    event.preventDefault();
+    movePlayer(event.key);
+  }
+});
+
+canvas.addEventListener("click", (event) => {
+  if (!gameOver) return;
+  const bounds = canvas.getBoundingClientRect();
+  const x = (event.clientX - bounds.left) * (canvas.width / bounds.width);
+  const y = (event.clientY - bounds.top) * (canvas.height / bounds.height);
+  if (x >= 285 && x <= 515 && y >= 340 && y <= 390) restartGame();
+});
+
 function formatTime(seconds) {
   // 전체 초를 분 단위 숫자로 바꿉니다.
   const minutes = Math.floor(seconds / 60);
@@ -183,6 +273,11 @@ function gameLoop(currentTime) {
   letters.forEach((letter) => {
     if (remainingTime > 0 && health > 0) letter.y += letter.speedY;
     if (letter.y > canvas.height + 40) resetFallingObject(letter);
+    if (!gameOver && isLetterCollected(letter)) {
+      collectedLetters += letter.text;
+      score += 10;
+      resetFallingObject(letter);
+    }
   });
   // 모든 장애물의 위치를 갱신하고 충돌을 확인합니다.
   obstacles.forEach((obstacle) => {
@@ -203,14 +298,14 @@ function gameLoop(currentTime) {
 
   // 그리기
   drawBackground();
-  drawBackground();
+  drawCollectedLettersOnShelves();
   ctx.fillStyle = "#1b1919";
   ctx.font = "bold 25px sans-serif";
   ctx.textAlign = "center";
   ctx.fillText("\uC2A4\uD3A0 \uCEE4\uB809\uC158", canvas.width / 2, 42);
   ctx.font = "bold 20px sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText("\uC810\uC218: 0", 25, 38);
+  ctx.fillText(`\uC810\uC218: ${score}`, 25, 38);
   ctx.textAlign = "right";
   ctx.fillText(`\uC2DC\uAC04: ${formatTime(remainingTime)}`, canvas.width - 25, 38);
   ctx.fillStyle = "#e84d5b";
@@ -223,11 +318,17 @@ function gameLoop(currentTime) {
   drawPlayer();
 
   if (remainingTime === 0 || health === 0) {
+    gameOver = true;
     // 시간이 끝났거나 체력이 없으면 게임 종료 문구를 표시합니다.
     ctx.fillStyle = "#1b1919";
     ctx.font = "bold 32px sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("\uAC8C\uC784 \uC885\uB8CC", canvas.width / 2, canvas.height / 2);
+    ctx.fillStyle = "#28616d";
+    ctx.fillRect(285, 340, 230, 50);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 20px sans-serif";
+    ctx.fillText("\uB2E4\uC2DC \uC2DC\uC791 (R)", canvas.width / 2, 373);
   }
 
   // 다음 화면을 그릴 때 게임 루프를 다시 실행합니다.
