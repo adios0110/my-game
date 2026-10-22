@@ -5,7 +5,7 @@ const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
 
 // 플레이어의 위치와 크기입니다. 키보드 조작은 아직 넣지 않습니다.
-const player = { x: 385, y: 525, width: 30, height: 35 };
+const player = { x: 385, y: 525, width: 45, height: 53 };
 
 // 게임 시간과 체력입니다.
 let remainingTime = 180;
@@ -78,7 +78,7 @@ function drawPlayer() {
   // 원본 학생 도트를 1/3 크기로 줄여 플레이어 위치에 배치합니다.
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(1 / 3, 1 / 3);
+  ctx.scale(1 / 2, 1 / 2);
   ctx.translate(-x, -y);
 
   // 머리, 얼굴, 안경, 교복, 다리 순서로 안경 쓴 학생을 그립니다.
