@@ -453,7 +453,7 @@ function gameLoop(currentTime) {
         hasShield = false;
       } else if (obstacle.text === "-") {
         // -는 점수를 차감하고, 나머지 장애물은 체력을 줄입니다.
-        score -= 25;
+        score -= 30;
       } else {
         health -= 1;
       }
