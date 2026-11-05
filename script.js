@@ -5,7 +5,7 @@ const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
 
 // 플레이어의 위치와 크기입니다.
-const player = { x: 385, y: 0, width: 45, height: 53 };
+const player = { x: 385, y: 0, width: 45, height: 54 };
 // 플레이어의 발이 캔버스 바닥에 닿는 시작 위치입니다.
 player.y = canvas.height - player.height;
 const initialPlayerPosition = { x: player.x, y: player.y };
@@ -37,6 +37,8 @@ const wordValidityCache = new Map();
 let gameOver = false;
 // 방어막은 장애물 충돌 한 번을 막으면 사라집니다.
 let hasShield = false;
+// 게임 상태: intro(조작 설명 화면) → playing(게임 중)
+let gameState = "intro";
 
 // A~Z는 모두 등장하지만, 화면에는 5개만 동시에 보입니다.
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -72,26 +74,130 @@ const obstacles = obstacleSymbols.slice(0, 3).split("").map((text, index) => ({
   speedY: 4 + index * 0.2,
 }));
 
-function drawBackground() {
-  // 배경 전체를 밝은 벽 색으로 채웁니다.
-  ctx.fillStyle = "#f3ead7";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // 가운데 창문과 좌우 책장을 그립니다.
-  ctx.fillStyle = "#d8edf0";
-  ctx.fillRect(285, 95, 230, 215);
-  ctx.strokeStyle = "#a89171";
-  ctx.lineWidth = 10;
-  ctx.strokeRect(285, 95, 230, 215);
-  ctx.fillStyle = "#d4c7af";
-  ctx.fillRect(20, 90, 210, 360);
-  ctx.fillRect(570, 90, 210, 360);
-  ctx.fillStyle = "#ae9c7e";
-  for (let y = 150; y < 450; y += 60) {
-    ctx.fillRect(20, y, 210, 8);
-    ctx.fillRect(570, y, 210, 8);
+// 책장 한 칸의 글자 슬롯 위치와 맞추기 위해 책장 시작 x 좌표를 상수로 둡니다.
+const shelfXs = [20, 570];
+
+function drawShelf(shelfX) {
+  // 따뜻한 나무 프레임이 도서관 벽 위에서 책장이 눈에 확 띄게 합니다.
+  ctx.fillStyle = "#7a4a2a";
+  ctx.fillRect(shelfX - 10, 76, 230, 384);
+  // 책장 윗장식입니다.
+  ctx.fillStyle = "#5a3820";
+  ctx.fillRect(shelfX - 14, 68, 238, 12);
+  ctx.fillStyle = "#c99458";
+  ctx.fillRect(shelfX - 14, 68, 238, 3);
+  // 안쪽은 어둡게 칠해 알록달록한 문자 책이 또렷하게 보이게 합니다.
+  ctx.fillStyle = "#2b1d15";
+  ctx.fillRect(shelfX, 90, 210, 360);
+  // 아직 비어 있는 책 자리를 아주 흐린 윤곽으로 보여 줍니다.
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.10)";
+  ctx.lineWidth = 1;
+  for (let row = 0; row < 5; row += 1) {
+    for (let column = 0; column < 5; column += 1) {
+      ctx.strokeRect(shelfX + 18 + column * 37 + 0.5, 108 + row * 60 + 0.5, 29, 39);
+    }
   }
-  ctx.fillStyle = "#f0eadc";
-  ctx.fillRect(0, 430, canvas.width, 170);
+  // 책이 올라가는 선반입니다.
+  for (let y = 150; y < 450; y += 60) {
+    ctx.fillStyle = "#a8763e";
+    ctx.fillRect(shelfX, y, 210, 9);
+    ctx.fillStyle = "#d1a066";
+    ctx.fillRect(shelfX, y, 210, 2);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+    ctx.fillRect(shelfX, y + 9, 210, 4);
+  }
+  // 책장 바닥판과 바깥 윤곽선입니다.
+  ctx.fillStyle = "#5a3820";
+  ctx.fillRect(shelfX - 10, 450, 230, 10);
+  ctx.strokeStyle = "#3a2412";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(shelfX - 10, 76, 230, 384);
+}
+
+function drawBackground() {
+  // 학교 도서관 벽: 차분한 연두빛 회색입니다.
+  ctx.fillStyle = "#d3dbc3";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 천장 들보입니다.
+  ctx.fillStyle = "#5a3d2b";
+  ctx.fillRect(0, 0, canvas.width, 16);
+  ctx.fillStyle = "#3d2a1c";
+  ctx.fillRect(0, 16, canvas.width, 4);
+
+  // 가운데 아래쪽 벽 하단 패널(웨인스코팅)입니다.
+  ctx.fillStyle = "#a68d6a";
+  ctx.fillRect(240, 350, 320, 100);
+  ctx.fillStyle = "#8f7656";
+  ctx.fillRect(240, 350, 320, 4);
+  for (let x = 262; x < 560; x += 60) ctx.fillRect(x, 362, 3, 76);
+
+  // 가운데 큰 창문입니다.
+  const sky = ctx.createLinearGradient(0, 128, 0, 300);
+  sky.addColorStop(0, "#9fd3ec");
+  sky.addColorStop(1, "#e2f3f7");
+  ctx.fillStyle = sky;
+  ctx.fillRect(290, 128, 220, 172);
+  ctx.strokeStyle = "#7b5a3c";
+  ctx.lineWidth = 10;
+  ctx.strokeRect(290, 128, 220, 172);
+  ctx.fillStyle = "#7b5a3c";
+  ctx.fillRect(397, 128, 6, 172);
+  ctx.fillRect(290, 211, 220, 6);
+  ctx.fillRect(280, 300, 240, 10);
+
+  // 창문 위 도서관 명패입니다.
+  ctx.fillStyle = "#5a3d2b";
+  ctx.fillRect(340, 97, 120, 22);
+  ctx.fillStyle = "#f3e3b8";
+  ctx.font = "bold 13px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("LIBRARY", 400, 113);
+
+  // 나무 바닥입니다.
+  ctx.fillStyle = "#b98b5c";
+  ctx.fillRect(0, 450, canvas.width, 150);
+  ctx.fillStyle = "#9d724a";
+  for (let band = 0; band < 4; band += 1) {
+    const bandY = 454 + band * 36;
+    ctx.fillRect(0, bandY + 34, canvas.width, 2);
+    for (let x = (band % 2) * 60; x < canvas.width; x += 120) ctx.fillRect(x, bandY, 2, 36);
+  }
+  // 걸레받이입니다.
+  ctx.fillStyle = "#5a3d2b";
+  ctx.fillRect(0, 446, canvas.width, 8);
+  // 창문으로 들어온 햇빛이 바닥에 비칩니다.
+  ctx.fillStyle = "rgba(255, 248, 210, 0.16)";
+  ctx.beginPath();
+  ctx.moveTo(330, 456);
+  ctx.lineTo(470, 456);
+  ctx.lineTo(540, 575);
+  ctx.lineTo(260, 575);
+  ctx.closePath();
+  ctx.fill();
+
+  // 가운데 열람용 책상과 스탠드입니다.
+  ctx.fillStyle = "#6e4a2c";
+  ctx.fillRect(340, 416, 8, 34);
+  ctx.fillRect(452, 416, 8, 34);
+  ctx.fillStyle = "#7d5232";
+  ctx.fillRect(330, 408, 140, 8);
+  ctx.fillStyle = "#6f8a66";
+  ctx.fillRect(350, 397, 24, 11);
+  ctx.fillStyle = "#a38bbf";
+  ctx.fillRect(376, 401, 18, 7);
+  ctx.fillStyle = "#2d5a43";
+  ctx.fillRect(432, 402, 14, 6);
+  ctx.fillStyle = "#3f8a63";
+  ctx.beginPath();
+  ctx.moveTo(427, 402);
+  ctx.lineTo(439, 382);
+  ctx.lineTo(451, 402);
+  ctx.closePath();
+  ctx.fill();
+
+  // 양옆 책장은 마지막에 그려 가장 눈에 띄게 합니다.
+  shelfXs.forEach(drawShelf);
 }
 
 function getCollectedLetterSlot(index) {
@@ -103,9 +209,33 @@ function getCollectedLetterSlot(index) {
   return { x: shelfX + 18 + column * 37, y: 108 + row * 60 };
 }
 
+// 특별한 기능을 쓸 수 있는 단어와, 그 단어의 글자들이 빛날 때 쓸 색입니다.
+const specialWords = [
+  { word: "SHIELD", color: "#54d6ff" },
+  { word: "PLUS", color: "#ffe45e" },
+];
+
+function getSpecialWordMatches() {
+  // 책장에 보이는 문자만으로 특수 단어를 만들 수 있는지 확인합니다.
+  const shelfLetters = [...collectedLetters].slice(0, 50);
+  return specialWords.map((special) => {
+    const indexes = [];
+    for (const character of special.word) {
+      const found = shelfLetters.findIndex((letter, index) => letter === character && !indexes.includes(index));
+      if (found === -1) return null;
+      indexes.push(found);
+    }
+    return { ...special, indexes };
+  }).filter(Boolean);
+}
+
 function drawCollectedLettersOnShelves() {
   // 획득 순서대로 왼쪽 책장을 먼저 채우고, 다음에는 오른쪽 책장을 채웁니다.
   const bookColors = ["#f5b544", "#e87867", "#5799a6", "#8d79b8", "#78a66b"];
+  const specialMatches = getSpecialWordMatches();
+  // 빛이 살짝 숨 쉬듯 커졌다 작아지게 합니다.
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 350);
+
   [...collectedLetters].slice(0, 50).forEach((letter, index) => {
     const shelfSide = Math.floor(index / 25); // 0: 왼쪽, 1: 오른쪽
     const positionInShelf = index % 25;
@@ -117,16 +247,39 @@ function drawCollectedLettersOnShelves() {
 
     ctx.fillStyle = bookColors[index % bookColors.length];
     ctx.fillRect(x, shelfY - 42, 30, 40);
+    // 책등 느낌의 어두운 줄과 윗면 하이라이트입니다.
+    ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+    ctx.fillRect(x, shelfY - 42, 4, 40);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.fillRect(x, shelfY - 42, 30, 3);
+
+    // 특수 기능(SHIELD, PLUS)에 쓸 수 있는 문자는 테두리가 살짝 빛납니다.
+    specialMatches.forEach((match, order) => {
+      if (!match.indexes.includes(index)) return;
+      const pad = 2 + order * 1.5;
+      ctx.save();
+      ctx.shadowColor = match.color;
+      ctx.shadowBlur = 6 + pulse * 6;
+      ctx.strokeStyle = match.color;
+      ctx.globalAlpha = 0.65 + pulse * 0.3;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - pad, shelfY - 42 - pad, 30 + pad * 2, 40 + pad * 2);
+      ctx.restore();
+    });
+
     // 선택된 문자는 흰색 테두리로 표시합니다.
     if (selectedLetterIndexes.includes(index)) {
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 3;
       ctx.strokeRect(x - 2, shelfY - 44, 34, 44);
     }
-    ctx.fillStyle = "#ffffff";
     ctx.font = "bold 20px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(letter, x + 15, shelfY - 14);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.strokeText(letter, x + 17, shelfY - 14);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(letter, x + 17, shelfY - 14);
   });
 }
 
@@ -181,10 +334,95 @@ async function submitSelectedWord() {
   }
 }
 
+// ---------- 안경 쓴 교복 학생 도트 스프라이트 (15 x 18 칸) ----------
+const spritePalette = {
+  H: "#2f2740", // 머리카락
+  S: "#ffd9c2", // 피부
+  G: "#6b6f8f", // 안경테
+  E: "#15151f", // 눈
+  M: "#d9776e", // 입
+  N: "#2c4a7c", // 교복 재킷
+  W: "#ffffff", // 셔츠
+  R: "#d9444f", // 리본
+  P: "#3c405e", // 바지
+  B: "#2a2330", // 신발
+};
+
+// 앞모습입니다.
+const frontRows = [
+  ".....HHHHH.....",
+  "...HHHHHHHHH...",
+  "..HHHHHHHHHHH..",
+  "..HHSSSSSSSHH..",
+  ".HHSSSSSSSSSHH.",
+  ".HSGGGSSSGGGSH.",
+  ".HSGEGSGSGEGSH.",
+  ".HSGGGSSSGGGSH.",
+  ".HSSSSSMSSSSSH.",
+  "..HSSSSSSSSSH..",
+  "....HSSSSSH....",
+  "...NNWWRWWNN...",
+  "..NNNWRRRWNNN..",
+  "..NNNNWRWNNNN..",
+  "..SNNNNNNNNNS..",
+  "....PPPPPPP....",
+  "....PPP.PPP....",
+  "...BBBB.BBBB...",
+];
+
+// 오른쪽을 보는 옆모습의 몸통입니다. (왼쪽을 볼 때는 좌우를 뒤집어 그립니다.)
+const sideBodyRows = [
+  "....HHHHHH.....",
+  "...HHHHHHHHH...",
+  "..HHHHHHHHHHH..",
+  "..HHHHHSSSSS...",
+  ".HHHHHSSSSSSS..",
+  ".HHHHSSGGGGSS..",
+  ".HHHHSSGEGGSS..",
+  ".HHHHSSGGGGSSS.",
+  ".HHHHSSSSSSMS..",
+  "..HHHSSSSSSS...",
+  "....HSSSSSS....",
+  "....NNWRNNN....",
+  "...NNNWRNNNN...",
+  "...NNNNNNNNN...",
+  "...NNNNNNNSS...",
+  "....PPPPPPP....",
+];
+// 걷기 애니메이션용 다리 두 가지입니다.
+const sideLegStride = ["...PPPP.PPPP...", "..BBBBB.BBBBB.."];
+const sideLegTogether = ["....PPPPPPP....", "....BBBBBBBB..."];
+
+function buildSprite(rows) {
+  // 글자 지도를 1칸 = 1픽셀인 작은 캔버스로 만들어 두고, 그릴 때 크게 확대합니다.
+  const spriteCanvas = document.createElement("canvas");
+  spriteCanvas.width = rows[0].length;
+  spriteCanvas.height = rows.length;
+  const spriteCtx = spriteCanvas.getContext("2d");
+  rows.forEach((row, y) => {
+    [...row].forEach((code, x) => {
+      if (code === ".") return;
+      spriteCtx.fillStyle = spritePalette[code];
+      spriteCtx.fillRect(x, y, 1, 1);
+    });
+  });
+  return spriteCanvas;
+}
+
+const studentFront = buildSprite(frontRows);
+const studentSide = [
+  buildSprite([...sideBodyRows, ...sideLegStride]),
+  buildSprite([...sideBodyRows, ...sideLegTogether]),
+];
+
 function drawPlayer() {
-  // 작은 플레이어 위치와, 원본 도트 그림의 기준 너비를 가져옵니다.
-  const { x, y } = player;
-  const drawingWidth = 90;
+  const { x, y, width, height } = player;
+
+  // 바닥에 그림자를 깔아 점프 높이를 알기 쉽게 합니다.
+  ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+  ctx.beginPath();
+  ctx.ellipse(x + width / 2, groundY + height - 3, 18, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
 
   // 방어막이 있을 때 플레이어 주위에 푸른 보호막을 표시합니다.
   if (hasShield) {
@@ -192,32 +430,87 @@ function drawPlayer() {
     ctx.strokeStyle = "#54d6ff";
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.ellipse(x + player.width / 2, y + player.height / 2, 34, 40, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + width / 2, y + height / 2, 34, 40, 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
 
-  // 원본 학생 도트를 1/3 크기로 줄여 플레이어 위치에 배치합니다.
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(1 / 2, 1 / 2);
-  ctx.translate(-x, -y);
+  // A만 누르면 왼쪽, D만 누르면 오른쪽 옆모습, 그 외에는 앞모습을 보여 줍니다.
+  const direction = keys.right && !keys.left ? "right" : keys.left && !keys.right ? "left" : "front";
 
-  // 머리, 얼굴, 안경, 교복, 다리 순서로 안경 쓴 학생을 그립니다.
-  ctx.fillStyle = "#202131";
-  ctx.fillRect(x + 10, y, drawingWidth - 20, 35);
-  ctx.fillStyle = "#ffd1bd";
-  ctx.fillRect(x + 15, y + 25, drawingWidth - 30, 40);
-  ctx.fillStyle = "#121521";
-  ctx.fillRect(x + 18, y + 38, 22, 15);
-  ctx.fillRect(x + 50, y + 38, 22, 15);
-  ctx.fillRect(x + 40, y + 43, 10, 5);
-  ctx.fillStyle = "#28616d";
-  ctx.fillRect(x + 18, y + 65, drawingWidth - 36, 30);
-  ctx.fillStyle = "#4c4d58";
-  ctx.fillRect(x + 25, y + 95, 18, 10);
-  ctx.fillRect(x + 47, y + 95, 18, 10);
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  if (direction === "front") {
+    ctx.drawImage(studentFront, x, y, width, height);
+  } else {
+    // 땅에서 걸을 때는 다리가 번갈아 움직이고, 공중에서는 성큼 걷는 다리로 고정합니다.
+    const frame = isOnGround ? Math.floor(performance.now() / 140) % 2 : 0;
+    if (direction === "left") {
+      ctx.translate(x + width, y);
+      ctx.scale(-1, 1);
+      ctx.drawImage(studentSide[frame], 0, 0, width, height);
+    } else {
+      ctx.drawImage(studentSide[frame], x, y, width, height);
+    }
+  }
   ctx.restore();
+}
+
+// ---------- 시작 전 조작 설명 화면 ----------
+function drawKeycap(label, x, y, width, fontSize) {
+  // 키보드 키처럼 보이도록 아래쪽에 두께를 줍니다.
+  ctx.fillStyle = "#8a8a8a";
+  ctx.fillRect(x, y + 5, width, 50);
+  ctx.fillStyle = "#f2f2f2";
+  ctx.fillRect(x, y, width, 50);
+  ctx.fillStyle = "#111111";
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.fillText(label, x + width / 2, y + 33);
+}
+
+function drawIntroScreen(time) {
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 44px sans-serif";
+  ctx.fillText("스펠 커넥션", canvas.width / 2, 100);
+
+  // 주인공 학생을 크게 보여 줍니다.
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(studentFront, canvas.width / 2 - 37.5, 130, 75, 90);
+  ctx.restore();
+
+  drawKeycap("A", 235, 270, 50, 24);
+  drawKeycap("D", 295, 270, 50, 24);
+  drawKeycap("SPACE", 235, 345, 190, 22);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 26px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("좌우 이동", 455, 305);
+  ctx.fillText("점프", 455, 380);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#9a9a9a";
+  ctx.font = "15px sans-serif";
+  ctx.fillText("책장의 문자를 클릭해 고른 뒤 Enter로 단어를 확인하세요.", canvas.width / 2, 465);
+
+  // 시작 안내 문구는 천천히 깜빡입니다.
+  ctx.save();
+  ctx.globalAlpha = 0.55 + 0.45 * Math.sin(time / 400);
+  ctx.fillStyle = "#ffe45e";
+  ctx.font = "bold 22px sans-serif";
+  ctx.fillText("Space 또는 Enter를 눌러 시작", canvas.width / 2, 535);
+  ctx.restore();
+}
+
+function startGame() {
+  gameState = "playing";
+  keys.left = false;
+  keys.right = false;
 }
 
 function drawLetter(letter) {
@@ -324,6 +617,12 @@ function preventGameKeyScroll(event) {
 document.addEventListener("keydown", (event) => {
   preventGameKeyScroll(event);
 
+  // 설명 화면에서는 Space 또는 Enter로 게임을 시작합니다.
+  if (gameState === "intro") {
+    if (event.key === " " || event.key === "Enter") startGame();
+    return;
+  }
+
   if (event.key === "r" || event.key === "R") {
     restartGame();
     return;
@@ -374,6 +673,11 @@ function updatePlayerPosition(deltaTime) {
 }
 
 canvas.addEventListener("click", (event) => {
+  if (gameState === "intro") {
+    startGame();
+    return;
+  }
+
   const bounds = canvas.getBoundingClientRect();
   const x = (event.clientX - bounds.left) * (canvas.width / bounds.width);
   const y = (event.clientY - bounds.top) * (canvas.height / bounds.height);
@@ -409,6 +713,14 @@ function formatTime(seconds) {
 function gameLoop(currentTime) {
   // 지우기
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 설명 화면 동안에는 게임 시간과 물체가 움직이지 않습니다.
+  if (gameState === "intro") {
+    lastFrameTime = currentTime;
+    drawIntroScreen(currentTime);
+    requestAnimationFrame(gameLoop);
+    return;
+  }
 
   // 계산
   if (lastFrameTime !== null && remainingTime > 0 && health > 0) {
