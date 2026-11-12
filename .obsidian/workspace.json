@@ -35,7 +35,8 @@
               "title": "디버깅 기록"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -202,11 +203,11 @@
       "bases:새 베이스 생성하기": false
     }
   },
-  "active": "d0027ed40b50fefd",
+  "active": "2e9243fa04796e6a",
   "lastOpenFiles": [
+    "게임 기획서.md",
     "회고.md",
     "디버깅 기록.md",
-    "README.md",
-    "게임 기획서.md"
+    "README.md"
   ]
 }
