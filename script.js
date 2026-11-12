@@ -174,8 +174,8 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  // B 키를 누르면 디버그 표시 및 히트박스 켜기/끄기 토글 (연속 입력 방지)
-  if (event.key === "b" || event.key === "B") {
+  // G 키를 누르면 디버그 표시 및 히트박스 켜기/끄기 토글 (연속 입력 방지)
+  if (event.key === "g" || event.key === "G") {
     if (!event.repeat) {
       showDebug = !showDebug;
       showHitbox = showDebug;
