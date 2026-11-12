@@ -1,8 +1,17 @@
+// ============================================================
+// ① 준비 (canvas, ctx)
+// ============================================================
+
 // HTML에서 게임 캔버스를 찾아옵니다.
 const canvas = document.querySelector("#game");
 
 // 캔버스에 그림을 그릴 2D 도구를 가져옵니다.
 const ctx = canvas.getContext("2d");
+
+
+// ============================================================
+// ② 상태 변수
+// ============================================================
 
 // 플레이어의 위치와 크기입니다.
 const player = { x: 385, y: 0, width: 45, height: 54 };
@@ -19,6 +28,10 @@ let verticalVelocity = 0;
 let isOnGround = true;
 // 현재 눌려 있는 키의 상태를 기록합니다.
 const keys = {};
+
+// 디버그 및 히트박스 표시 설정 (기본값 false로 변경)
+let showDebug = false;
+let showHitbox = false;
 
 // 게임 시간과 체력입니다.
 const maxHealth = 3;
@@ -76,6 +89,158 @@ const obstacles = obstacleSymbols.slice(0, 3).split("").map((text, index) => ({
 
 // 책장 한 칸의 글자 슬롯 위치와 맞추기 위해 책장 시작 x 좌표를 상수로 둡니다.
 const shelfXs = [20, 570];
+
+// 특별한 기능을 쓸 수 있는 단어와, 그 단어의 글자들이 빛날 때 쓸 색입니다.
+const specialWords = [
+  { word: "SHIELD", color: "#54d6ff" },
+  { word: "PLUS", color: "#ffe45e" },
+];
+
+// ---------- 안경 쓴 교복 학생 도트 스프라이트 (15 x 18 칸) ----------
+const spritePalette = {
+  H: "#2f2740", // 머리카락
+  S: "#ffd9c2", // 피부
+  G: "#6b6f8f", // 안경테
+  E: "#15151f", // 눈
+  M: "#d9776e", // 입
+  N: "#2c4a7c", // 교복 재킷
+  W: "#ffffff", // 셔츠
+  R: "#d9444f", // 리본
+  P: "#3c405e", // 바지
+  B: "#2a2330", // 신발
+};
+
+// 앞모습입니다.
+const frontRows = [
+  ".....HHHHH.....",
+  "...HHHHHHHHH...",
+  "..HHHHHHHHHHH..",
+  "..HHSSSSSSSHH..",
+  ".HHSSSSSSSSSHH.",
+  ".HSGGGSSSGGGSH.",
+  ".HSGEGSGSGEGSH.",
+  ".HSGGGSSSGGGSH.",
+  ".HSSSSSMSSSSSH.",
+  "..HSSSSSSSSSH..",
+  "....HSSSSSH....",
+  "...NNWWRWWNN...",
+  "..NNNWRRRWNNN..",
+  "..NNNNWRWNNNN..",
+  "..SNNNNNNNNNS..",
+  "....PPPPPPP....",
+  "....PPP.PPP....",
+  "...BBBB.BBBB...",
+];
+
+// 오른쪽을 보는 옆모습의 몸통입니다. (왼쪽을 볼 때는 좌우를 뒤집어 그립니다.)
+const sideBodyRows = [
+  "....HHHHHH.....",
+  "...HHHHHHHHH...",
+  "..HHHHHHHHHHH..",
+  "..HHHHHSSSSS...",
+  ".HHHHHSSSSSSS..",
+  ".HHHHSSGGGGSS..",
+  ".HHHHSSGEGGSS..",
+  ".HHHHSSGGGGSSS.",
+  ".HHHHSSSSSSMS..",
+  "..HHHSSSSSSS...",
+  "....HSSSSSS....",
+  "....NNWRNNN....",
+  "...NNNWRNNNN...",
+  "...NNNNNNNNN...",
+  "...NNNNNNNSS...",
+  "....PPPPPPP....",
+];
+// 걷기 애니메이션용 다리 두 가지입니다.
+const sideLegStride = ["...PPPP.PPPP...", "..BBBBB.BBBBB.."];
+const sideLegTogether = ["....PPPPPPP....", "....BBBBBBBB..."];
+
+
+// ============================================================
+// ③ 이벤트
+// ============================================================
+
+document.addEventListener("keydown", (event) => {
+  preventGameKeyScroll(event);
+
+  // 설명 화면에서는 Space 또는 Enter로 게임을 시작합니다.
+  if (gameState === "intro") {
+    if (event.key === " " || event.key === "Enter") startGame();
+    return;
+  }
+
+  if (event.key === "r" || event.key === "R") {
+    restartGame();
+    return;
+  }
+
+  // D 키를 누르면 디버그 표시 및 히트박스 켜기/끄기 토글 (연속 입력 방지)
+  if (event.key === "d" || event.key === "D") {
+    if (!event.repeat) {
+      showDebug = !showDebug;
+      showHitbox = showDebug;
+    }
+    keys.right = true;
+    return;
+  }
+
+  if (gameOver) return;
+
+  if (event.key === "Enter") {
+    submitSelectedWord();
+    return;
+  }
+
+  // A, D 키의 눌림 상태를 저장해 게임 루프에서 계속 이동하게 합니다.
+  if (["a", "A"].includes(event.key)) keys.left = true;
+
+  // 바닥에 있을 때만 음수 점프 속도를 주어 위로 솟게 합니다.
+  if (event.key === " " && isOnGround) {
+    verticalVelocity = jumpPower;
+    isOnGround = false;
+  }
+});
+
+document.addEventListener("keyup", (event) => {
+  preventGameKeyScroll(event);
+  if (["a", "A"].includes(event.key)) keys.left = false;
+  if (["d", "D"].includes(event.key)) keys.right = false;
+});
+
+canvas.addEventListener("click", (event) => {
+  if (gameState === "intro") {
+    startGame();
+    return;
+  }
+
+  const bounds = canvas.getBoundingClientRect();
+  const x = (event.clientX - bounds.left) * (canvas.width / bounds.width);
+  const y = (event.clientY - bounds.top) * (canvas.height / bounds.height);
+
+  if (gameOver) {
+    if (x >= 285 && x <= 515 && y >= 340 && y <= 390) restartGame();
+    return;
+  }
+
+  // 클릭한 책장 문자를 선택하거나 선택 해제합니다.
+  const clickedIndex = [...collectedLetters].slice(0, 50).findIndex((_, index) => {
+    const slot = getCollectedLetterSlot(index);
+    return x >= slot.x && x <= slot.x + 30 && y >= slot.y && y <= slot.y + 40;
+  });
+  if (clickedIndex === -1) return;
+
+  if (selectedLetterIndexes.includes(clickedIndex)) {
+    selectedLetterIndexes = selectedLetterIndexes.filter((index) => index !== clickedIndex);
+  } else {
+    selectedLetterIndexes.push(clickedIndex);
+  }
+  wordMessage = "Enter를 눌러 선택한 단어를 확인하세요.";
+});
+
+
+// ============================================================
+// ④ 함수들
+// ============================================================
 
 function drawShelf(shelfX) {
   // 따뜻한 나무 프레임이 도서관 벽 위에서 책장이 눈에 확 띄게 합니다.
@@ -209,12 +374,6 @@ function getCollectedLetterSlot(index) {
   return { x: shelfX + 18 + column * 37, y: 108 + row * 60 };
 }
 
-// 특별한 기능을 쓸 수 있는 단어와, 그 단어의 글자들이 빛날 때 쓸 색입니다.
-const specialWords = [
-  { word: "SHIELD", color: "#54d6ff" },
-  { word: "PLUS", color: "#ffe45e" },
-];
-
 function getSpecialWordMatches() {
   // 책장에 보이는 문자만으로 특수 단어를 만들 수 있는지 확인합니다.
   const shelfLetters = [...collectedLetters].slice(0, 50);
@@ -333,65 +492,6 @@ async function submitSelectedWord() {
     wordMessage = `${word.toUpperCase()} 정답! +50점`;
   }
 }
-
-// ---------- 안경 쓴 교복 학생 도트 스프라이트 (15 x 18 칸) ----------
-const spritePalette = {
-  H: "#2f2740", // 머리카락
-  S: "#ffd9c2", // 피부
-  G: "#6b6f8f", // 안경테
-  E: "#15151f", // 눈
-  M: "#d9776e", // 입
-  N: "#2c4a7c", // 교복 재킷
-  W: "#ffffff", // 셔츠
-  R: "#d9444f", // 리본
-  P: "#3c405e", // 바지
-  B: "#2a2330", // 신발
-};
-
-// 앞모습입니다.
-const frontRows = [
-  ".....HHHHH.....",
-  "...HHHHHHHHH...",
-  "..HHHHHHHHHHH..",
-  "..HHSSSSSSSHH..",
-  ".HHSSSSSSSSSHH.",
-  ".HSGGGSSSGGGSH.",
-  ".HSGEGSGSGEGSH.",
-  ".HSGGGSSSGGGSH.",
-  ".HSSSSSMSSSSSH.",
-  "..HSSSSSSSSSH..",
-  "....HSSSSSH....",
-  "...NNWWRWWNN...",
-  "..NNNWRRRWNNN..",
-  "..NNNNWRWNNNN..",
-  "..SNNNNNNNNNS..",
-  "....PPPPPPP....",
-  "....PPP.PPP....",
-  "...BBBB.BBBB...",
-];
-
-// 오른쪽을 보는 옆모습의 몸통입니다. (왼쪽을 볼 때는 좌우를 뒤집어 그립니다.)
-const sideBodyRows = [
-  "....HHHHHH.....",
-  "...HHHHHHHHH...",
-  "..HHHHHHHHHHH..",
-  "..HHHHHSSSSS...",
-  ".HHHHHSSSSSSS..",
-  ".HHHHSSGGGGSS..",
-  ".HHHHSSGEGGSS..",
-  ".HHHHSSGGGGSSS.",
-  ".HHHHSSSSSSMS..",
-  "..HHHSSSSSSS...",
-  "....HSSSSSS....",
-  "....NNWRNNN....",
-  "...NNNWRNNNN...",
-  "...NNNNNNNNN...",
-  "...NNNNNNNSS...",
-  "....PPPPPPP....",
-];
-// 걷기 애니메이션용 다리 두 가지입니다.
-const sideLegStride = ["...PPPP.PPPP...", "..BBBBB.BBBBB.."];
-const sideLegTogether = ["....PPPPPPP....", "....BBBBBBBB..."];
 
 function buildSprite(rows) {
   // 글자 지도를 1칸 = 1픽셀인 작은 캔버스로 만들어 두고, 그릴 때 크게 확대합니다.
@@ -614,44 +714,6 @@ function preventGameKeyScroll(event) {
   if (["a", "A", "d", "D", " "].includes(event.key)) event.preventDefault();
 }
 
-document.addEventListener("keydown", (event) => {
-  preventGameKeyScroll(event);
-
-  // 설명 화면에서는 Space 또는 Enter로 게임을 시작합니다.
-  if (gameState === "intro") {
-    if (event.key === " " || event.key === "Enter") startGame();
-    return;
-  }
-
-  if (event.key === "r" || event.key === "R") {
-    restartGame();
-    return;
-  }
-
-  if (gameOver) return;
-
-  if (event.key === "Enter") {
-    submitSelectedWord();
-    return;
-  }
-
-  // A, D 키의 눌림 상태를 저장해 게임 루프에서 계속 이동하게 합니다.
-  if (["a", "A"].includes(event.key)) keys.left = true;
-  if (["d", "D"].includes(event.key)) keys.right = true;
-
-  // 바닥에 있을 때만 음수 점프 속도를 주어 위로 솟게 합니다.
-  if (event.key === " " && isOnGround) {
-    verticalVelocity = jumpPower;
-    isOnGround = false;
-  }
-});
-
-document.addEventListener("keyup", (event) => {
-  preventGameKeyScroll(event);
-  if (["a", "A"].includes(event.key)) keys.left = false;
-  if (["d", "D"].includes(event.key)) keys.right = false;
-});
-
 function updatePlayerPosition(deltaTime) {
   // 눌려 있는 A, D 키에 따라 가로 위치를 계산합니다.
   if (keys.left) player.x -= playerSpeed * deltaTime;
@@ -672,36 +734,6 @@ function updatePlayerPosition(deltaTime) {
   }
 }
 
-canvas.addEventListener("click", (event) => {
-  if (gameState === "intro") {
-    startGame();
-    return;
-  }
-
-  const bounds = canvas.getBoundingClientRect();
-  const x = (event.clientX - bounds.left) * (canvas.width / bounds.width);
-  const y = (event.clientY - bounds.top) * (canvas.height / bounds.height);
-
-  if (gameOver) {
-    if (x >= 285 && x <= 515 && y >= 340 && y <= 390) restartGame();
-    return;
-  }
-
-  // 클릭한 책장 문자를 선택하거나 선택 해제합니다.
-  const clickedIndex = [...collectedLetters].slice(0, 50).findIndex((_, index) => {
-    const slot = getCollectedLetterSlot(index);
-    return x >= slot.x && x <= slot.x + 30 && y >= slot.y && y <= slot.y + 40;
-  });
-  if (clickedIndex === -1) return;
-
-  if (selectedLetterIndexes.includes(clickedIndex)) {
-    selectedLetterIndexes = selectedLetterIndexes.filter((index) => index !== clickedIndex);
-  } else {
-    selectedLetterIndexes.push(clickedIndex);
-  }
-  wordMessage = "Enter를 눌러 선택한 단어를 확인하세요.";
-});
-
 function formatTime(seconds) {
   // 전체 초를 분 단위 숫자로 바꿉니다.
   const minutes = Math.floor(seconds / 60);
@@ -709,6 +741,11 @@ function formatTime(seconds) {
   const secondsText = Math.ceil(seconds % 60).toString().padStart(2, "0");
   return `${minutes}:${secondsText}`;
 }
+
+
+// ============================================================
+// ⑤ 게임 루프
+// ============================================================
 
 function gameLoop(currentTime) {
   // 지우기
@@ -805,6 +842,45 @@ function gameLoop(currentTime) {
   obstacles.forEach(drawObstacle);
   drawPlayer();
 
+  // 디버그 정보 및 히트박스 표시 (showDebug가 true일 때만 출력)
+  if (showDebug) {
+    ctx.save();
+    // 왼쪽 상단 여백에 반투명 박스 및 디버그 정보 출력
+    ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+    ctx.fillRect(15, 95, 195, 95);
+    ctx.strokeStyle = "#54d6ff";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(15, 95, 195, 95);
+
+    ctx.fillStyle = "#54d6ff";
+    ctx.font = "bold 12px monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("[DEBUG INFO]", 23, 113);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(`Player X: ${Math.round(player.x)}, Y: ${Math.round(player.y)}`, 23, 131);
+    ctx.fillText(`Obstacles: ${obstacles.length}`, 23, 149);
+    ctx.fillText(`GameState: ${gameState}`, 23, 167);
+    ctx.fillText(`Score: ${score}`, 23, 185);
+    ctx.restore();
+
+    // showHitbox가 true일 때 플레이어와 장애물의 충돌 범위(히트박스)를 빨간 테두리로 표시
+    if (showHitbox) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 0, 0, 0.85)";
+      ctx.lineWidth = 2;
+
+      // 플레이어 히트박스
+      ctx.strokeRect(player.x, player.y, player.width, player.height);
+
+      // 장애물 히트박스 (isCollidingWithPlayer 판정 범위와 일치)
+      obstacles.forEach((obstacle) => {
+        ctx.strokeRect(obstacle.x - 18, obstacle.y - 36, 36, 44);
+      });
+
+      ctx.restore();
+    }
+  }
+
   if (remainingTime === 0 || health === 0) {
     gameOver = true;
     // 시간이 끝났거나 체력이 없으면 게임 종료 문구를 표시합니다.
@@ -822,6 +898,11 @@ function gameLoop(currentTime) {
   // 다음 화면을 그릴 때 게임 루프를 다시 실행합니다.
   requestAnimationFrame(gameLoop);
 }
+
+
+// ============================================================
+// ⑥ 시동
+// ============================================================
 
 // 브라우저의 다음 화면 그리기 시점에 게임을 처음 시작합니다.
 requestAnimationFrame(gameLoop);

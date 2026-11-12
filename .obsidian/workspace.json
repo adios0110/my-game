@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "README.md",
+                "file": "디버깅 기록.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "README"
+              "title": "디버깅 기록"
             }
           }
         ]
@@ -190,8 +190,8 @@
   },
   "active": "d0027ed40b50fefd",
   "lastOpenFiles": [
-    "게임 기획서.md",
     "회고.md",
-    "README.md"
+    "README.md",
+    "게임 기획서.md"
   ]
 }
