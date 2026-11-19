@@ -22,7 +22,149 @@ const initialPlayerPosition = { x: player.x, y: player.y };
 const playerSpeed = 300;
 const jumpPower = -650;
 const gravity = 1800;
-const groundY = canvas.height - player.height;
+let groundY = canvas.height - player.height;
+
+// ------------------------------------------------------------
+// 플레이어 이미지 (player.png)
+// player.png는 같은 크기의 4칸이 가로로 이어진 시트입니다.
+//   0: 앞모습 / 1, 2: 오른쪽 걷기 / 3: 왼쪽 (왼쪽의 다른 한 장은 2번을 뒤집어 씁니다)
+// ------------------------------------------------------------
+const PLAYER_IMAGE_SRC = "player.png";
+const PLAYER_IMAGE_FRAME_COUNT = 4;
+// 이미지가 불러와지면 플레이어를 이 높이로 그립니다. (가로는 이미지 비율대로 정해집니다)
+const PLAYER_DRAW_HEIGHT = 68;
+// 충돌 판정 영역은 이미지 크기에서 양쪽으로 이만큼씩 줄입니다.
+const PLAYER_HITBOX_INSET_X = 4;
+// 오른쪽/왼쪽 걷기 때 번갈아 그릴 프레임입니다.
+const playerWalkFrames = {
+  right: [{ frame: 1, flip: false }, { frame: 2, flip: false }],
+  left: [{ frame: 3, flip: false }, { frame: 2, flip: true }],
+};
+
+// 이미지가 실제로 불러와졌을 때만 true가 됩니다. false이면 기존 도트 그림으로 그립니다.
+let isPlayerImageReady = false;
+const playerImage = new Image();
+playerImage.onload = () => {
+  // 그림을 그리는 건 게임 루프지만, 불러오기가 끝나기 전에는 그리지 않도록 여기서 준비 완료를 표시합니다.
+  const frameWidth = playerImage.naturalWidth / PLAYER_IMAGE_FRAME_COUNT;
+  const frameHeight = playerImage.naturalHeight;
+  if (!(frameWidth > 0 && frameHeight > 0)) return;
+
+  // 플레이어 크기를 이미지 크기 기준으로 바꾸되, 발 위치는 그대로 유지합니다.
+  const feetY = player.y + player.height;
+  player.height = PLAYER_DRAW_HEIGHT;
+  player.width = Math.round(PLAYER_DRAW_HEIGHT * frameWidth / frameHeight);
+  groundY = canvas.height - player.height;
+  initialPlayerPosition.y = groundY;
+  player.y = Math.min(feetY - player.height, groundY);
+  player.x = Math.min(player.x, canvas.width - player.width);
+  isPlayerImageReady = true;
+};
+playerImage.onerror = () => {
+  // 파일이 없거나 불러오지 못하면 기존 도트 그림 그대로 게임이 진행됩니다.
+  isPlayerImageReady = false;
+};
+playerImage.src = PLAYER_IMAGE_SRC;
+
+function getPlayerHitbox() {
+  // 이미지 크기에서 좌우로 PLAYER_HITBOX_INSET_X만큼 줄인 충돌 판정 영역입니다.
+  return {
+    x: player.x + PLAYER_HITBOX_INSET_X,
+    y: player.y,
+    width: player.width - PLAYER_HITBOX_INSET_X * 2,
+    height: player.height,
+  };
+}
+
+// ------------------------------------------------------------
+// 책장 레이아웃: 모은 문자(책)가 놓일 자리
+// 배경 이미지가 있을 때와 없을 때(직접 그린 책장)의 자리가 달라서 두 가지를 준비합니다.
+//   startX: [왼쪽 책장 첫 열 x, 오른쪽 책장 첫 열 x] / rowBottoms: 각 줄 책이 놓이는 선반 윗면 y
+// ------------------------------------------------------------
+const DRAWN_SHELF_LAYOUT = {
+  cols: 5, rows: 5, startX: [38, 588], pitchX: 37, bookW: 30, bookH: 40,
+  rowBottoms: [148, 208, 268, 328, 388],
+};
+const IMAGE_SHELF_LAYOUT = {
+  cols: 6, rows: 4, startX: [89, 587], pitchX: 33, bookW: 28, bookH: 40,
+  rowBottoms: [310, 361, 415, 469],
+};
+let shelfLayout = DRAWN_SHELF_LAYOUT;
+
+function getShelfCapacity() {
+  // 두 책장에 보여 줄 수 있는 문자의 최대 개수입니다.
+  return shelfLayout.cols * shelfLayout.rows * 2;
+}
+
+// ------------------------------------------------------------
+// 배경 이미지 (background.png, 800 x 600)
+// 불러오기에 성공해야 이미지로 그리고, 실패하면 직접 그린 도서관 배경을 씁니다.
+// ------------------------------------------------------------
+const BACKGROUND_IMAGE_SRC = "background.png";
+let isBackgroundReady = false;
+const backgroundImage = new Image();
+backgroundImage.onload = () => {
+  if (!(backgroundImage.naturalWidth > 0)) return;
+  isBackgroundReady = true;
+  // 이미지 속 책장 위치에 맞춰 문자 책 자리를 바꿉니다.
+  shelfLayout = IMAGE_SHELF_LAYOUT;
+};
+backgroundImage.onerror = () => {
+  isBackgroundReady = false;
+  shelfLayout = DRAWN_SHELF_LAYOUT;
+};
+backgroundImage.src = BACKGROUND_IMAGE_SRC;
+
+// ------------------------------------------------------------
+// 효과음과 음소거
+// ------------------------------------------------------------
+const HIT_SOUND_SRC = "hit.mp3";
+const POINT_SOUND_SRC = "point.mp3";
+// M 키로 켜고 끄는 음소거 상태입니다.
+let isMuted = false;
+
+function createSound(src) {
+  // 파일이 없거나 Audio를 만들 수 없는 환경이어도 게임이 멈추지 않도록 감쌉니다.
+  try {
+    const audio = new Audio(src);
+    audio.preload = "auto";
+    // 소리 파일을 불러오지 못해도 조용히 넘어갑니다.
+    audio.addEventListener("error", () => {});
+    return audio;
+  } catch {
+    return null;
+  }
+}
+
+const hitSound = createSound(HIT_SOUND_SRC);
+const pointSound = createSound(POINT_SOUND_SRC);
+
+function playSound(sound) {
+  if (isMuted || !sound) return;
+  try {
+    // 연속으로 빠르게 나도 매번 처음부터 다시 재생하도록 되감습니다.
+    sound.currentTime = 0;
+    const result = sound.play();
+    // 재생이 막히거나 파일이 없으면 play()가 실패하는데, 에러로 멈추지 않게 무시합니다.
+    if (result && typeof result.catch === "function") result.catch(() => {});
+  } catch {
+    // 재생 실패는 게임 진행에 영향을 주지 않습니다.
+  }
+}
+
+function toggleMute() {
+  isMuted = !isMuted;
+  // 음소거를 켜는 순간 재생 중이던 소리도 멈춥니다.
+  if (isMuted) {
+    [hitSound, pointSound].forEach((sound) => {
+      try {
+        if (sound) sound.pause();
+      } catch {
+        // 무시
+      }
+    });
+  }
+}
 // 세로 속도는 음수일수록 위로, 양수일수록 아래로 움직입니다.
 let verticalVelocity = 0;
 let isOnGround = true;
@@ -33,14 +175,48 @@ const keys = {};
 let showDebug = false;
 let showHitbox = false;
 
+// ------------------------------------------------------------
+// 난이도 설정: 시간이 지날수록 장애물이 조금씩 어려워집니다.
+// 숫자를 바꾸고 싶으면 이 블록만 고치면 됩니다.
+// ------------------------------------------------------------
+// 난이도가 한 단계 오르는 간격(밀리초)입니다. Date.now() 기준이라 모니터 주사율과 무관합니다.
+const DIFFICULTY_INTERVAL_MS = 10000;
+// 장애물 속도 배율: 처음 값, 단계마다 늘어나는 양, 상한입니다.
+const START_SPEED_MULTIPLIER = 0.5;
+const SPEED_MULTIPLIER_STEP = 0.05;
+const MAX_SPEED_MULTIPLIER = 1.3;
+// 장애물 개수: 처음 개수, 몇 단계마다 1개씩 늘지, 상한입니다.
+const START_OBSTACLE_COUNT = 1;
+const LEVELS_PER_EXTRA_OBSTACLE = 2;
+const MAX_OBSTACLE_COUNT = 7;
+// 장애물 등장 간격: 화면 밖으로 나간(또는 부딪힌) 장애물이 다시 나타나기까지 기다리는 시간입니다.
+// 처음 값, 단계마다 줄어드는 양, 줄어들 수 있는 최대 양입니다. (최소 간격 = 처음 값 - 최대 감소량)
+const START_RESPAWN_DELAY_MS = 2500;
+const RESPAWN_DELAY_STEP_MS = 150;
+const MAX_RESPAWN_DELAY_REDUCTION_MS = 2200;
+
+// 현재 난이도 단계, 난이도 시계의 시작 시각, 다음 상승 시점입니다.
+let difficultyLevel = 0;
+let difficultyStartTime = Date.now();
+let nextDifficultyIncreaseAt = difficultyStartTime + DIFFICULTY_INTERVAL_MS;
+// 현재 단계에서 실제로 쓰는 값입니다. (applyDifficulty가 계산해서 채웁니다)
+const difficulty = {
+  speedMultiplier: START_SPEED_MULTIPLIER,
+  respawnDelayMs: START_RESPAWN_DELAY_MS,
+};
+
 // 게임 시간과 체력입니다.
 const maxHealth = 3;
 let remainingTime = 180;
 let health = maxHealth;
 let elapsedTime = 0;
 let lastFrameTime = null;
-let nextObstacleIncreaseAt = 15;
 let score = 0;
+// 최고 점수는 브라우저 localStorage에 저장해 두고, 없으면 0으로 시작합니다.
+const HIGH_SCORE_KEY = "spellCorrectionHighScore";
+let highScore = loadHighScore();
+// 이번 판에서 최고 점수를 새로 세웠는지 기록합니다. (게임 오버 화면의 "신기록!" 표시용)
+let isNewRecord = false;
 let collectedLetters = "";
 // 클릭해 선택한 문자의 인덱스와 단어 확인 상태입니다.
 let selectedLetterIndexes = [];
@@ -50,8 +226,8 @@ const wordValidityCache = new Map();
 let gameOver = false;
 // 방어막은 장애물 충돌 한 번을 막으면 사라집니다.
 let hasShield = false;
-// 게임 상태: intro(조작 설명 화면) → playing(게임 중)
-let gameState = "intro";
+// 게임 상태: start(시작 화면) → intro(조작 설명 화면) → playing(게임 중)
+let gameState = "start";
 
 // A~Z는 모두 등장하지만, 화면에는 5개만 동시에 보입니다.
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -69,10 +245,10 @@ const letters = Array.from({ length: 5 }, (_, index) => ({
   speedY: 3 + (index % 3) * 0.35,
 }));
 
-// 장애물은 3개로 시작하며 15초마다 하나씩 추가됩니다.
+// 장애물은 START_OBSTACLE_COUNT개로 시작하고, 난이도가 오르면 하나씩 늘어납니다.
 const obstacleSymbols = "!-@#$%^&*";
-let nextObstacleSymbolIndex = 3;
-const obstacles = obstacleSymbols.slice(0, 3).split("").map((text, index) => ({
+let nextObstacleSymbolIndex = START_OBSTACLE_COUNT;
+const obstacles = obstacleSymbols.slice(0, START_OBSTACLE_COUNT).split("").map((text, index) => ({
   // 이 물체가 장애물임을 표시합니다.
   kind: "obstacle",
   // 화면에 표시할 특수기호입니다.
@@ -163,9 +339,22 @@ const sideLegTogether = ["....PPPPPPP....", "....BBBBBBBB..."];
 document.addEventListener("keydown", (event) => {
   preventGameKeyScroll(event);
 
+  // M 키: 음소거 켜기/끄기. 어느 화면에서든 동작하고, 화면 전환은 일으키지 않습니다.
+  if (event.key === "m" || event.key === "M") {
+    if (!event.repeat) toggleMute();
+    return;
+  }
+
+  // 시작 화면에서는 아무 키나 누르면 조작 설명 화면으로 넘어갑니다.
+  // (키를 꾹 눌러 반복 입력될 때 바로 다음 화면까지 넘어가지 않도록 repeat는 무시합니다.)
+  if (gameState === "start") {
+    if (!event.repeat) gameState = "intro";
+    return;
+  }
+
   // 설명 화면에서는 Space 또는 Enter로 게임을 시작합니다.
   if (gameState === "intro") {
-    if (event.key === " " || event.key === "Enter") startGame();
+    if (!event.repeat && (event.key === " " || event.key === "Enter")) startGame();
     return;
   }
 
@@ -180,7 +369,6 @@ document.addEventListener("keydown", (event) => {
       showDebug = !showDebug;
       showHitbox = showDebug;
     }
-    keys.right = true;
     return;
   }
 
@@ -193,6 +381,7 @@ document.addEventListener("keydown", (event) => {
 
   // A, D 키의 눌림 상태를 저장해 게임 루프에서 계속 이동하게 합니다.
   if (["a", "A"].includes(event.key)) keys.left = true;
+  if (["d", "D"].includes(event.key)) keys.right = true;
 
   // 바닥에 있을 때만 음수 점프 속도를 주어 위로 솟게 합니다.
   if (event.key === " " && isOnGround) {
@@ -208,6 +397,7 @@ document.addEventListener("keyup", (event) => {
 });
 
 canvas.addEventListener("click", (event) => {
+  if (gameState === "start") return;
   if (gameState === "intro") {
     startGame();
     return;
@@ -223,9 +413,9 @@ canvas.addEventListener("click", (event) => {
   }
 
   // 클릭한 책장 문자를 선택하거나 선택 해제합니다.
-  const clickedIndex = [...collectedLetters].slice(0, 50).findIndex((_, index) => {
+  const clickedIndex = [...collectedLetters].slice(0, getShelfCapacity()).findIndex((_, index) => {
     const slot = getCollectedLetterSlot(index);
-    return x >= slot.x && x <= slot.x + 30 && y >= slot.y && y <= slot.y + 40;
+    return x >= slot.x && x <= slot.x + slot.width && y >= slot.y && y <= slot.y + slot.height;
   });
   if (clickedIndex === -1) return;
 
@@ -280,6 +470,15 @@ function drawShelf(shelfX) {
 }
 
 function drawBackground() {
+  if (isBackgroundReady && backgroundImage.complete && backgroundImage.naturalWidth > 0) {
+    ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+    return;
+  }
+  // 안전장치: 이미지가 없거나 불러오지 못했으면 직접 그린 배경을 씁니다.
+  drawFallbackBackground();
+}
+
+function drawFallbackBackground() {
   // 학교 도서관 벽: 차분한 연두빛 회색입니다.
   ctx.fillStyle = "#d3dbc3";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -366,17 +565,24 @@ function drawBackground() {
 }
 
 function getCollectedLetterSlot(index) {
-  const shelfSide = Math.floor(index / 25);
-  const positionInShelf = index % 25;
-  const row = Math.floor(positionInShelf / 5);
-  const column = positionInShelf % 5;
-  const shelfX = shelfSide === 0 ? 20 : 570;
-  return { x: shelfX + 18 + column * 37, y: 108 + row * 60 };
+  // 획득 순서대로 왼쪽 책장을 먼저 채우고, 다음에는 오른쪽 책장을 채웁니다.
+  const layout = shelfLayout;
+  const lettersPerShelf = layout.cols * layout.rows;
+  const shelfSide = Math.floor(index / lettersPerShelf); // 0: 왼쪽, 1: 오른쪽
+  const positionInShelf = index % lettersPerShelf;
+  const row = Math.floor(positionInShelf / layout.cols);
+  const column = positionInShelf % layout.cols;
+  return {
+    x: layout.startX[shelfSide] + column * layout.pitchX,
+    y: layout.rowBottoms[row] - layout.bookH,
+    width: layout.bookW,
+    height: layout.bookH,
+  };
 }
 
 function getSpecialWordMatches() {
   // 책장에 보이는 문자만으로 특수 단어를 만들 수 있는지 확인합니다.
-  const shelfLetters = [...collectedLetters].slice(0, 50);
+  const shelfLetters = [...collectedLetters].slice(0, getShelfCapacity());
   return specialWords.map((special) => {
     const indexes = [];
     for (const character of special.word) {
@@ -389,28 +595,25 @@ function getSpecialWordMatches() {
 }
 
 function drawCollectedLettersOnShelves() {
-  // 획득 순서대로 왼쪽 책장을 먼저 채우고, 다음에는 오른쪽 책장을 채웁니다.
   const bookColors = ["#f5b544", "#e87867", "#5799a6", "#8d79b8", "#78a66b"];
   const specialMatches = getSpecialWordMatches();
   // 빛이 살짝 숨 쉬듯 커졌다 작아지게 합니다.
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 350);
 
-  [...collectedLetters].slice(0, 50).forEach((letter, index) => {
-    const shelfSide = Math.floor(index / 25); // 0: 왼쪽, 1: 오른쪽
-    const positionInShelf = index % 25;
-    const row = Math.floor(positionInShelf / 5);
-    const column = positionInShelf % 5;
-    const shelfX = shelfSide === 0 ? 20 : 570;
-    const x = shelfX + 18 + column * 37;
-    const shelfY = 150 + row * 60;
+  [...collectedLetters].slice(0, getShelfCapacity()).forEach((letter, index) => {
+    const { x, y, width, height } = getCollectedLetterSlot(index);
 
     ctx.fillStyle = bookColors[index % bookColors.length];
-    ctx.fillRect(x, shelfY - 42, 30, 40);
+    ctx.fillRect(x, y, width, height);
+    // 어두운 윤곽선: 갈색 책장 위에서도 책이 또렷하게 보이게 합니다.
+    ctx.strokeStyle = "rgba(40, 22, 10, 0.75)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 0.75, y + 0.75, width - 1.5, height - 1.5);
     // 책등 느낌의 어두운 줄과 윗면 하이라이트입니다.
     ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
-    ctx.fillRect(x, shelfY - 42, 4, 40);
+    ctx.fillRect(x, y, 4, height);
     ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
-    ctx.fillRect(x, shelfY - 42, 30, 3);
+    ctx.fillRect(x, y, width, 3);
 
     // 특수 기능(SHIELD, PLUS)에 쓸 수 있는 문자는 테두리가 살짝 빛납니다.
     specialMatches.forEach((match, order) => {
@@ -422,7 +625,7 @@ function drawCollectedLettersOnShelves() {
       ctx.strokeStyle = match.color;
       ctx.globalAlpha = 0.65 + pulse * 0.3;
       ctx.lineWidth = 2;
-      ctx.strokeRect(x - pad, shelfY - 42 - pad, 30 + pad * 2, 40 + pad * 2);
+      ctx.strokeRect(x - pad, y - pad, width + pad * 2, height + pad * 2);
       ctx.restore();
     });
 
@@ -430,15 +633,15 @@ function drawCollectedLettersOnShelves() {
     if (selectedLetterIndexes.includes(index)) {
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 3;
-      ctx.strokeRect(x - 2, shelfY - 44, 34, 44);
+      ctx.strokeRect(x - 2, y - 2, width + 4, height + 4);
     }
     ctx.font = "bold 20px sans-serif";
     ctx.textAlign = "center";
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
-    ctx.strokeText(letter, x + 17, shelfY - 14);
+    ctx.strokeText(letter, x + width / 2, y + height - 12);
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(letter, x + 17, shelfY - 14);
+    ctx.fillText(letter, x + width / 2, y + height - 12);
   });
 }
 
@@ -477,6 +680,7 @@ async function submitSelectedWord() {
   }
 
   score += 50;
+  playSound(pointSound);
   // 뒤에서부터 삭제해 앞쪽 인덱스가 바뀌지 않게 합니다.
   [...selectedLetterIndexes].sort((a, b) => b - a).forEach((index) => {
     collectedLetters = collectedLetters.slice(0, index) + collectedLetters.slice(index + 1);
@@ -515,13 +719,29 @@ const studentSide = [
   buildSprite([...sideBodyRows, ...sideLegTogether]),
 ];
 
+function drawPlayerFrame(frameIndex, x, y, width, height, flip = false) {
+  // player.png 시트에서 frameIndex번째 칸만 잘라 그립니다. flip이 true이면 좌우를 뒤집습니다.
+  const frameWidth = playerImage.naturalWidth / PLAYER_IMAGE_FRAME_COUNT;
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  if (flip) {
+    ctx.translate(x + width, y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(playerImage, frameIndex * frameWidth, 0, frameWidth, playerImage.naturalHeight, 0, 0, width, height);
+  } else {
+    ctx.drawImage(playerImage, frameIndex * frameWidth, 0, frameWidth, playerImage.naturalHeight, x, y, width, height);
+  }
+  ctx.restore();
+}
+
 function drawPlayer() {
   const { x, y, width, height } = player;
 
   // 바닥에 그림자를 깔아 점프 높이를 알기 쉽게 합니다.
   ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
   ctx.beginPath();
-  ctx.ellipse(x + width / 2, groundY + height - 3, 18, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + width / 2, groundY + height - 3, Math.max(18, width * 0.4), 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // 방어막이 있을 때 플레이어 주위에 푸른 보호막을 표시합니다.
@@ -530,28 +750,38 @@ function drawPlayer() {
     ctx.strokeStyle = "#54d6ff";
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.ellipse(x + width / 2, y + height / 2, 34, 40, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + width / 2, y + height / 2, Math.max(34, width * 0.75), height * 0.75, 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
 
   // A만 누르면 왼쪽, D만 누르면 오른쪽 옆모습, 그 외에는 앞모습을 보여 줍니다.
   const direction = keys.right && !keys.left ? "right" : keys.left && !keys.right ? "left" : "front";
+  // 땅에서 걸을 때는 다리가 번갈아 움직이고, 공중에서는 첫 번째 걷기 모습으로 고정합니다.
+  const walkStep = isOnGround ? Math.floor(performance.now() / 140) % 2 : 0;
 
+  // 이미지가 불러와졌다면 player.png로 그립니다.
+  if (isPlayerImageReady && playerImage.complete && playerImage.naturalWidth > 0) {
+    if (direction === "front") {
+      drawPlayerFrame(0, x, y, width, height);
+    } else {
+      const step = playerWalkFrames[direction][walkStep];
+      drawPlayerFrame(step.frame, x, y, width, height, step.flip);
+    }
+    return;
+  }
+
+  // 안전장치: 이미지가 없거나 불러오지 못했을 때는 기존 도트 그림으로 그립니다.
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   if (direction === "front") {
     ctx.drawImage(studentFront, x, y, width, height);
+  } else if (direction === "left") {
+    ctx.translate(x + width, y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(studentSide[walkStep], 0, 0, width, height);
   } else {
-    // 땅에서 걸을 때는 다리가 번갈아 움직이고, 공중에서는 성큼 걷는 다리로 고정합니다.
-    const frame = isOnGround ? Math.floor(performance.now() / 140) % 2 : 0;
-    if (direction === "left") {
-      ctx.translate(x + width, y);
-      ctx.scale(-1, 1);
-      ctx.drawImage(studentSide[frame], 0, 0, width, height);
-    } else {
-      ctx.drawImage(studentSide[frame], x, y, width, height);
-    }
+    ctx.drawImage(studentSide[walkStep], x, y, width, height);
   }
   ctx.restore();
 }
@@ -579,10 +809,15 @@ function drawIntroScreen(time) {
   ctx.fillText("스펠 커넥션", canvas.width / 2, 100);
 
   // 주인공 학생을 크게 보여 줍니다.
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(studentFront, canvas.width / 2 - 37.5, 130, 75, 90);
-  ctx.restore();
+  if (isPlayerImageReady && playerImage.complete && playerImage.naturalWidth > 0) {
+    const introWidth = Math.round(90 * player.width / player.height);
+    drawPlayerFrame(0, canvas.width / 2 - introWidth / 2, 130, introWidth, 90);
+  } else {
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(studentFront, canvas.width / 2 - 37.5, 130, 75, 90);
+    ctx.restore();
+  }
 
   drawKeycap("A", 235, 270, 50, 24);
   drawKeycap("D", 295, 270, 50, 24);
@@ -607,8 +842,53 @@ function drawIntroScreen(time) {
   ctx.restore();
 }
 
+function drawStartScreen(time) {
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.textAlign = "center";
+
+  // 게임 제목
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 64px sans-serif";
+  ctx.fillText("SpellCorrection", canvas.width / 2, 220);
+
+  // 목표 한 줄
+  ctx.fillStyle = "#ffe45e";
+  ctx.font = "bold 26px sans-serif";
+  ctx.fillText("최대한 많은 점수를 얻어라!", canvas.width / 2, 290);
+
+  // 게임 설명
+  ctx.fillStyle = "#d0d0d0";
+  ctx.font = "18px sans-serif";
+  ctx.fillText("특수 기호를 피해 문자를 모아 문자를 마우스로 선택하여 단어를 만드세요.", canvas.width / 2, 345);
+
+  // 시작 안내(깜빡임)
+  ctx.save();
+  ctx.globalAlpha = 0.5 + 0.5 * Math.sin(time / 400);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "16px sans-serif";
+  ctx.fillText("아무 키나 눌러 시작", canvas.width / 2, 520);
+  ctx.restore();
+}
+
+function drawMuteIndicator() {
+  // 오른쪽 아래 구석에 현재 소리 상태를 작게 보여 줍니다.
+  const label = isMuted ? "음소거 (M)" : "소리 켜짐 (M)";
+  ctx.save();
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "right";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
+  ctx.strokeText(label, canvas.width - 10, canvas.height - 10);
+  ctx.fillStyle = isMuted ? "#ff8a8a" : "#ffffff";
+  ctx.fillText(label, canvas.width - 10, canvas.height - 10);
+  ctx.restore();
+}
+
 function startGame() {
   gameState = "playing";
+  // 난이도 시계는 실제로 게임이 시작되는 순간부터 잽니다.
+  resetDifficulty();
   keys.left = false;
   keys.right = false;
 }
@@ -638,6 +918,8 @@ function resetFallingObject(object) {
   object.y = -30;
   // 다음에 떨어질 가로 위치를 무작위로 정합니다.
   object.x = 30 + Math.random() * (canvas.width - 60);
+  // 장애물이라면 현재 난이도의 등장 간격만큼 기다렸다가 다시 떨어집니다.
+  if (object.kind === "obstacle") object.respawnAt = Date.now() + difficulty.respawnDelayMs;
   // 글자라면 A부터 Z까지 다음 알파벳으로 바꿉니다.
   if (object.kind === "letter") {
     object.text = alphabet[nextLetterIndex];
@@ -660,53 +942,121 @@ function addObstacle() {
   nextObstacleSymbolIndex += 1;
 }
 
+function loadHighScore() {
+  // 저장된 값을 Number()로 숫자로 바꿉니다. 없거나 숫자가 아니면 0입니다.
+  try {
+    return Number(localStorage.getItem(HIGH_SCORE_KEY)) || 0;
+  } catch {
+    // localStorage를 쓸 수 없는 환경이면 저장 없이 0으로 시작합니다.
+    return 0;
+  }
+}
+
+function saveHighScore() {
+  try {
+    localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
+  } catch {
+    // 저장에 실패해도 게임은 계속됩니다.
+  }
+}
+
+function finishGame() {
+  // 게임이 끝난 순간 딱 한 번 호출됩니다. 지금 점수가 더 높으면 최고 점수를 갱신하고 저장합니다.
+  gameOver = true;
+  if (score > highScore) {
+    highScore = score;
+    isNewRecord = true;
+    saveHighScore();
+  }
+}
+
+function applyDifficulty() {
+  // 현재 단계(difficultyLevel)로 속도, 등장 간격, 개수를 계산합니다. 상한은 Math.min으로 막습니다.
+  difficulty.speedMultiplier = Math.min(
+    MAX_SPEED_MULTIPLIER,
+    START_SPEED_MULTIPLIER + difficultyLevel * SPEED_MULTIPLIER_STEP,
+  );
+  difficulty.respawnDelayMs = START_RESPAWN_DELAY_MS
+    - Math.min(difficultyLevel * RESPAWN_DELAY_STEP_MS, MAX_RESPAWN_DELAY_REDUCTION_MS);
+  const targetObstacleCount = Math.min(
+    MAX_OBSTACLE_COUNT,
+    START_OBSTACLE_COUNT + Math.floor(difficultyLevel / LEVELS_PER_EXTRA_OBSTACLE),
+  );
+  while (obstacles.length < targetObstacleCount) addObstacle();
+}
+
+function updateDifficulty() {
+  // 다음 상승 시점이 지났을 때만 한 단계 올리고, 시점을 10초 뒤로 미룹니다.
+  const now = Date.now();
+  let hasChanged = false;
+  while (now >= nextDifficultyIncreaseAt) {
+    difficultyLevel += 1;
+    nextDifficultyIncreaseAt += DIFFICULTY_INTERVAL_MS;
+    hasChanged = true;
+  }
+  if (hasChanged) applyDifficulty();
+}
+
+function resetDifficulty() {
+  // 난이도, 시작 시각, 다음 상승 시점을 모두 처음으로 되돌립니다.
+  difficultyLevel = 0;
+  difficultyStartTime = Date.now();
+  nextDifficultyIncreaseAt = difficultyStartTime + DIFFICULTY_INTERVAL_MS;
+  applyDifficulty();
+}
+
 function isCollidingWithPlayer(obstacle) {
-  // 장애물의 영역과 플레이어의 영역이 겹치는지 확인합니다.
-  return obstacle.x + 18 > player.x
-    && obstacle.x - 18 < player.x + player.width
-    && obstacle.y + 8 > player.y
-    && obstacle.y - 36 < player.y + player.height;
+  // 장애물의 영역과 플레이어의 판정 영역이 겹치는지 확인합니다.
+  const hitbox = getPlayerHitbox();
+  return obstacle.x + 18 > hitbox.x
+    && obstacle.x - 18 < hitbox.x + hitbox.width
+    && obstacle.y + 8 > hitbox.y
+    && obstacle.y - 36 < hitbox.y + hitbox.height;
 }
 
 function isLetterCollected(letter) {
-  return letter.x + 18 > player.x
-    && letter.x - 18 < player.x + player.width
-    && letter.y + 8 > player.y
-    && letter.y - 36 < player.y + player.height;
+  const hitbox = getPlayerHitbox();
+  return letter.x + 18 > hitbox.x
+    && letter.x - 18 < hitbox.x + hitbox.width
+    && letter.y + 8 > hitbox.y
+    && letter.y - 36 < hitbox.y + hitbox.height;
 }
 
 function restartGame() {
   remainingTime = 180;
   health = maxHealth;
   elapsedTime = 0;
-  nextObstacleIncreaseAt = 15;
   score = 0;
   collectedLetters = "";
   selectedLetterIndexes = [];
   wordMessage = "문자를 클릭하고 Enter로 단어를 확인하세요.";
   isCheckingWord = false;
   gameOver = false;
+  isNewRecord = false;
   hasShield = false;
   player.x = initialPlayerPosition.x;
   player.y = groundY;
   verticalVelocity = 0;
   isOnGround = true;
   nextLetterIndex = 5;
-  nextObstacleSymbolIndex = 3;
+  nextObstacleSymbolIndex = START_OBSTACLE_COUNT;
 
   letters.forEach((letter, index) => {
     letter.text = alphabet[index];
     letter.x = 35 + index * 150;
     letter.y = -40 - index * 80;
   });
-  obstacles.splice(3);
+  obstacles.splice(START_OBSTACLE_COUNT);
   obstacles.forEach((obstacle, index) => {
     obstacle.text = obstacleSymbols[index];
     obstacle.x = 150 + index * 240;
     obstacle.y = -100 - index * 150;
     obstacle.speedX = index < 2 ? (index === 0 ? 1.8 : -1.8) : 0;
     obstacle.speedY = 4 + index * 0.2;
+    obstacle.respawnAt = 0;
   });
+  // 난이도(단계, 시작 시각, 다음 상승 시점)도 처음으로 되돌립니다.
+  resetDifficulty();
 }
 
 // A, D 키와 스페이스바의 기본 동작을 막습니다.
@@ -751,10 +1101,20 @@ function gameLoop(currentTime) {
   // 지우기
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // 시작 화면 동안에는 게임 시간과 물체가 움직이지 않습니다.
+  if (gameState === "start") {
+    lastFrameTime = currentTime;
+    drawStartScreen(currentTime);
+    drawMuteIndicator();
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
   // 설명 화면 동안에는 게임 시간과 물체가 움직이지 않습니다.
   if (gameState === "intro") {
     lastFrameTime = currentTime;
     drawIntroScreen(currentTime);
+    drawMuteIndicator();
     requestAnimationFrame(gameLoop);
     return;
   }
@@ -768,11 +1128,8 @@ function gameLoop(currentTime) {
     elapsedTime += deltaTime;
     // 키 상태와 중력에 따라 플레이어 위치를 매 프레임 갱신합니다.
     updatePlayerPosition(deltaTime);
-    while (elapsedTime >= nextObstacleIncreaseAt) {
-      // 15초가 지날 때마다 장애물을 하나 추가합니다.
-      addObstacle();
-      nextObstacleIncreaseAt += 15;
-    }
+    // Date.now() 기준으로 10초마다 난이도를 한 단계씩 올립니다.
+    updateDifficulty();
   }
   lastFrameTime = currentTime;
 
@@ -783,20 +1140,27 @@ function gameLoop(currentTime) {
     if (!gameOver && isLetterCollected(letter)) {
       collectedLetters += letter.text;
       score += 5;
+      playSound(pointSound);
       resetFallingObject(letter);
     }
   });
   // 모든 장애물의 위치를 갱신하고 충돌을 확인합니다.
   obstacles.forEach((obstacle) => {
-    if (remainingTime > 0 && health > 0) obstacle.y += obstacle.speedY;
-    // 가로 속도가 있는 장애물은 대각선으로 이동합니다.
-    if (remainingTime > 0 && health > 0) obstacle.x += obstacle.speedX;
+    // 다시 등장하기를 기다리는 중이면 움직이지 않습니다. (respawnAt이 없으면 비교가 false라 바로 움직입니다)
+    const isWaiting = Date.now() < obstacle.respawnAt;
+    // 현재 난이도의 속도 배율을 곱해 이동합니다. 가로 속도가 있으면 대각선으로 움직입니다.
+    if (remainingTime > 0 && health > 0 && !isWaiting) {
+      obstacle.y += obstacle.speedY * difficulty.speedMultiplier;
+      obstacle.x += obstacle.speedX * difficulty.speedMultiplier;
+    }
     // 좌우 벽에 닿으면 가로 이동 방향을 반대로 바꿉니다.
     if (obstacle.x <= 18 || obstacle.x >= canvas.width - 18) {
       obstacle.speedX *= -1;
     }
     if (obstacle.y > canvas.height + 40) resetFallingObject(obstacle);
     if (health > 0 && isCollidingWithPlayer(obstacle)) {
+      // 충돌 효과음 (방어막으로 막은 충돌에도 재생됩니다)
+      playSound(hitSound);
       // 방어막이 있으면 이 충돌 한 번을 막고 방어막을 없앱니다.
       if (hasShield) {
         hasShield = false;
@@ -822,6 +1186,9 @@ function gameLoop(currentTime) {
   ctx.fillText(`\uC810\uC218: ${score}`, 25, 38);
   ctx.textAlign = "right";
   ctx.fillText(`\uC2DC\uAC04: ${formatTime(remainingTime)}`, canvas.width - 25, 38);
+  // 최고 점수를 시간 아래에 작게 보여 줍니다.
+  ctx.font = "bold 14px sans-serif";
+  ctx.fillText(`최고: ${highScore}`, canvas.width - 25, 60);
   ctx.fillStyle = "#e84d5b";
   ctx.font = "bold 25px sans-serif";
   ctx.textAlign = "left";
@@ -847,10 +1214,10 @@ function gameLoop(currentTime) {
     ctx.save();
     // 왼쪽 상단 여백에 반투명 박스 및 디버그 정보 출력
     ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
-    ctx.fillRect(15, 95, 195, 95);
+    ctx.fillRect(15, 95, 195, 115);
     ctx.strokeStyle = "#54d6ff";
     ctx.lineWidth = 1;
-    ctx.strokeRect(15, 95, 195, 95);
+    ctx.strokeRect(15, 95, 195, 115);
 
     ctx.fillStyle = "#54d6ff";
     ctx.font = "bold 12px monospace";
@@ -861,6 +1228,7 @@ function gameLoop(currentTime) {
     ctx.fillText(`Obstacles: ${obstacles.length}`, 23, 149);
     ctx.fillText(`GameState: ${gameState}`, 23, 167);
     ctx.fillText(`Score: ${score}`, 23, 185);
+    ctx.fillText(`Level: ${difficultyLevel}  Speed x${difficulty.speedMultiplier.toFixed(2)}`, 23, 203);
     ctx.restore();
 
     // showHitbox가 true일 때 플레이어와 장애물의 충돌 범위(히트박스)를 빨간 테두리로 표시
@@ -869,8 +1237,14 @@ function gameLoop(currentTime) {
       ctx.strokeStyle = "rgba(255, 0, 0, 0.85)";
       ctx.lineWidth = 2;
 
-      // 플레이어 히트박스
+      // 이미지 전체 크기는 얇은 회색 선, 실제 충돌 판정 영역은 빨간 선으로 표시합니다.
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.lineWidth = 1;
       ctx.strokeRect(player.x, player.y, player.width, player.height);
+      ctx.restore();
+      const hitbox = getPlayerHitbox();
+      ctx.strokeRect(hitbox.x, hitbox.y, hitbox.width, hitbox.height);
 
       // 장애물 히트박스 (isCollidingWithPlayer 판정 범위와 일치)
       obstacles.forEach((obstacle) => {
@@ -882,18 +1256,34 @@ function gameLoop(currentTime) {
   }
 
   if (remainingTime === 0 || health === 0) {
-    gameOver = true;
-    // 시간이 끝났거나 체력이 없으면 게임 종료 문구를 표시합니다.
-    ctx.fillStyle = "#1b1919";
+    // 게임 오버가 되는 첫 프레임에만 최고 점수를 확인합니다.
+    if (!gameOver) finishGame();
+    // 점수가 잘 읽히도록 어두운 판 위에 결과를 보여 줍니다.
+    ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+    ctx.fillRect(240, 180, 320, 225);
+    ctx.fillStyle = "#ffffff";
     ctx.font = "bold 32px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("\uAC8C\uC784 \uC885\uB8CC", canvas.width / 2, canvas.height / 2);
+    ctx.fillText("\uAC8C\uC784 \uC885\uB8CC", canvas.width / 2, 225);
+    ctx.font = "bold 22px sans-serif";
+    ctx.fillText(`최종 점수: ${score}`, canvas.width / 2, 263);
+    ctx.fillText(`최고 점수: ${highScore}`, canvas.width / 2, 293);
+    if (isNewRecord) {
+      // 신기록이면 노란 문구가 살짝 깜빡입니다.
+      ctx.save();
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(performance.now() / 200);
+      ctx.fillStyle = "#ffe45e";
+      ctx.fillText("신기록!", canvas.width / 2, 323);
+      ctx.restore();
+    }
     ctx.fillStyle = "#28616d";
     ctx.fillRect(285, 340, 230, 50);
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 20px sans-serif";
     ctx.fillText("\uB2E4\uC2DC \uC2DC\uC791 (R)", canvas.width / 2, 373);
   }
+
+  drawMuteIndicator();
 
   // 다음 화면을 그릴 때 게임 루프를 다시 실행합니다.
   requestAnimationFrame(gameLoop);
